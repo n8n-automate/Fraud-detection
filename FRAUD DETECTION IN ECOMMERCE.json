@@ -1,0 +1,448 @@
+{
+  "name": "FRAUD DETECTION IN ECOMMERCE",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Loop through the merged input items (assuming item.json contains the current order data)\nreturn items.map(item => {\n  const order = item.json;\n  \n  // --- A. VELOCITY & HISTORY CALCULATION ---\n  const currentOrderTotal = parseFloat(order.total);\n  \n  // Assuming the history array is available in a property named 'historical_orders' \n  // from the Merge Node output. ADJUST THIS IF YOUR MERGE NODE OUTPUT DIFFERS.\n  const history = item.json.historical_orders || []; \n  const pastOrders = history.filter(o => o.id !== order.id && o.status !== 'cancelled'); // Ensure we exclude the current order and canceled orders\n\n  let totalPastSpend = 0;\n  let ordersLast30Days = 0;\n  const thirtyDaysAgo = new Date();\n  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30); // Calculate date 30 days ago\n\n  pastOrders.forEach(pastOrder => {\n      const pastOrderDate = new Date(pastOrder.date_created);\n      totalPastSpend += parseFloat(pastOrder.total);\n\n      if (pastOrderDate > thirtyDaysAgo) {\n          ordersLast30Days++;\n      }\n  });\n\n  const totalHistoricalOrders = pastOrders.length;\n  const averageOrderValue = totalHistoricalOrders > 0 ? (totalPastSpend / totalHistoricalOrders) : 0;\n  const currentOrderRatioToAOV = averageOrderValue > 0 ? (currentOrderTotal / averageOrderValue) : 0;\n\n  // --- B. ADDRESS, ITEM, & METHOD EXTRACTION (Previous Logic) ---\n  const billing = order.billing || {};\n  const shipping = order.shipping || {};\n  const billingString = `${billing.address_1 || ''}, ${billing.city || ''}, ${billing.postcode || ''}, ${billing.country || ''}`.toLowerCase().trim();\n  const shippingString = `${shipping.address_1 || ''}, ${shipping.city || ''}, ${shipping.postcode || ''}, ${shipping.country || ''}`.toLowerCase().trim();\n  const isAddressMismatch = shippingString.length > 5 && billingString !== shippingString;\n  const lineItems = order.line_items || [];\n  const cartSummary = lineItems.map(p => `${p.quantity}x ${p.name}`).join(' | ');\n  const totalItemCount = lineItems.reduce((sum, p) => sum + (p.quantity || 0), 0);\n  const shippingMethod = order.shipping_lines?.[0]?.method_title || 'N/A';\n  const paymentMethod = order.payment_method_title || 'N/A';\n  const customerNote = order.customer_note || '';\n\n  // --- C. FINAL OUTPUT (Adding New Metric Fields) ---\n  return {\n    json: {\n      order_id: order.id,\n      total_spend: currentOrderTotal,\n      email: billing.email,\n      ip_address: order.customer_ip_address,\n      address_mismatch_detected: isAddressMismatch,\n      shipping_method: shippingMethod, \n      payment_method: paymentMethod, \n      customer_note: customerNote, \n      cart_summary: cartSummary,\n      total_item_count: totalItemCount,\n      \n      // 🚀 NEW: History & Velocity Metrics\n      total_historical_orders: totalHistoricalOrders,\n      avg_order_value: averageOrderValue.toFixed(2),\n      current_vs_aov_ratio: currentOrderRatioToAOV.toFixed(2),\n      orders_in_last_30_days: ordersLast30Days,\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -928,
+        64
+      ],
+      "id": "3add886a-3e70-4d8d-a1b9-c5afcc608fed",
+      "name": "Extract order details"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a highly experienced Fraud Analysis Engine. Your primary goal is to protect the business from high-value fraud while minimizing false positives.\n\nAnalyze the transaction data below and provide a concise risk assessment.\n\nOrder Data for Analysis:\n{{ JSON.stringify($json) }}\n\n### EVALUATION RULES (Weighting)\n1. ADDRESS & IDENTITY:\n   - HIGH Risk if **address_mismatch_detected** is TRUE on an order over $100.\n   - MEDIUM Risk if **email** is a temporary/suspicious domain or appears keyboard-smashed (e.g., 'asdfghjkl@gmail.com').\n\n2. FINANCIAL & HISTORY (Velocity and Value):\n   - **CRITICAL** Flag if **current_vs_aov_ratio** is greater than 3.0 (i.e., this order is 3x larger than their average).\n   - **MEDIUM** Flag if **orders_in_last_30_days** is greater than 5 AND **total_historical_orders** is low (e.g., 0-5).\n   - Ignore history if **total_historical_orders** is 0 (first-time customer).\n\n3. CART CONTENTS & BEHAVIOR:\n   - HIGH Risk if **cart_summary** includes bulk **high-resale items** (electronics, gift cards, luxury goods).\n   - HIGH Risk if **shipping_method** is expensive express/overnight AND other flags are present.\n   - Flag **customer_note** if it contains urgent or suspicious language (e.g., \"Must ship immediately,\" \"Leaving the country\").\n\n### TASK\nBased on the combined evidence, assign a score (0-100) and risk level (LOW, MEDIUM, HIGH).\n\nReturn a JSON object that strictly adheres to the defined schema.",
+        "hasOutputParser": true,
+        "messages": {
+          "messageValues": [
+            {
+              "type": "HumanMessagePromptTemplate",
+              "message": "=You are a highly experienced Fraud Analysis Engine. Your primary goal is to protect the business from high-value fraud while minimizing false positives.\n\nAnalyze the transaction data below and provide a concise risk assessment.\n\nOrder Data for Analysis:\n{{ JSON.stringify($json) }}\n\n### EVALUATION RULES (Weighting)\n1. ADDRESS & IDENTITY:\n   - HIGH Risk if **address_mismatch_detected** is TRUE on an order over $100.\n   - MEDIUM Risk if **email** is a temporary/suspicious domain or appears keyboard-smashed (e.g., 'asdfghjkl@gmail.com').\n\n2. FINANCIAL & HISTORY (Velocity and Value):\n   - **CRITICAL** Flag if **current_vs_aov_ratio** is greater than 3.0 (i.e., this order is 3x larger than their average).\n   - **MEDIUM** Flag if **orders_in_last_30_days** is greater than 5 AND **total_historical_orders** is low (e.g., 0-5).\n   - Ignore history if **total_historical_orders** is 0 (first-time customer).\n\n3. CART CONTENTS & BEHAVIOR:\n   - HIGH Risk if **cart_summary** includes bulk **high-resale items** (electronics, gift cards, luxury goods).\n   - HIGH Risk if **shipping_method** is expensive express/overnight AND other flags are present.\n   - Flag **customer_note** if it contains urgent or suspicious language (e.g., \"Must ship immediately,\" \"Leaving the country\").\n\n### TASK\nBased on the combined evidence, assign a score (0-100) and risk level (LOW, MEDIUM, HIGH).\n\nReturn a JSON object that strictly adheres to the defined schema."
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        -704,
+        64
+      ],
+      "id": "46aa4b2e-dc31-4740-a08a-993154312e7b",
+      "name": "Basic LLM Chain"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        256
+      ],
+      "id": "f44cb2d6-07dc-4947-8534-7769b6bc85d1",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "kcaP76TSciTMIgqi",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"risk_score\": {\n      \"type\": \"number\",\n      \"description\": \"A score from 0 to 100 indicating fraud probability\"\n    },\n    \"risk_level\": {\n      \"type\": \"string\",\n      \"enum\": [\"HIGH\", \"MEDIUM\", \"LOW\"],\n      \"description\": \"The categorical risk level\"\n    },\n    \"reasoning\": {\n      \"type\": \"string\",\n      \"description\": \"A concise explanation of why this score was given\"\n    },\n    \"flagged_issues\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"string\"\n      },\n      \"description\": \"List of specific red flags found (e.g. 'Address Mismatch', 'Bulk iPhone')\"\n    }\n  },\n  \"required\": [\"risk_score\", \"risk_level\", \"reasoning\", \"flagged_issues\"]\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        -528,
+        256
+      ],
+      "id": "c177baa5-accf-4503-ab41-f023b1365cd7",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.output.risk_score }}",
+                    "rightValue": 61,
+                    "operator": {
+                      "type": "number",
+                      "operation": "gte"
+                    },
+                    "id": "5970312d-e63b-4d67-95bf-7da71e83f6fd"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "high"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "805bcfac-f013-4b03-80a5-e3610623af17",
+                    "leftValue": "={{ $json.output.risk_score }}",
+                    "rightValue": 21,
+                    "operator": {
+                      "type": "number",
+                      "operation": "gte"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "medium"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "5f078a5b-0153-435e-bce1-b651970a689b",
+                    "leftValue": "={{ $json.output.risk_score }}",
+                    "rightValue": 0,
+                    "operator": {
+                      "type": "number",
+                      "operation": "gte"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "low"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [
+        -400,
+        48
+      ],
+      "id": "a34de338-8295-48d5-8d57-599e1aaafc14",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "otherOptions": {}
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        -96,
+        128
+      ],
+      "id": "ce0f78a3-3287-4255-8ea4-ec35a25975cc",
+      "name": "Review Order",
+      "webhookId": "c005434a-c650-4ab9-a929-89bf91346de3"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -1152,
+        64
+      ],
+      "id": "6d69c1c2-1e4f-4726-9ab8-b2599915e5d3",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "resource": "order",
+        "operation": "update",
+        "orderId": "",
+        "updateFields": {},
+        "billingUi": {},
+        "couponLinesUi": {},
+        "feeLinesUi": {},
+        "lineItemsUi": {},
+        "metadataUi": {},
+        "shippingUi": {},
+        "shippingLinesUi": {}
+      },
+      "type": "n8n-nodes-base.wooCommerce",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        320
+      ],
+      "id": "ffcb12a3-0f9e-42a4-a78d-b15ca543e6ac",
+      "name": "Review an Order"
+    },
+    {
+      "parameters": {
+        "resource": "order",
+        "operation": "update",
+        "orderId": "",
+        "updateFields": {},
+        "billingUi": {},
+        "couponLinesUi": {},
+        "feeLinesUi": {},
+        "lineItemsUi": {},
+        "metadataUi": {},
+        "shippingUi": {},
+        "shippingLinesUi": {}
+      },
+      "type": "n8n-nodes-base.wooCommerce",
+      "typeVersion": 1,
+      "position": [
+        -96,
+        -48
+      ],
+      "id": "7565b976-7ff8-40b6-870b-ca2590db088e",
+      "name": "Hold an order"
+    },
+    {
+      "parameters": {
+        "resource": "order",
+        "operation": "update",
+        "orderId": "",
+        "updateFields": {},
+        "billingUi": {},
+        "couponLinesUi": {},
+        "feeLinesUi": {},
+        "lineItemsUi": {},
+        "metadataUi": {},
+        "shippingUi": {},
+        "shippingLinesUi": {}
+      },
+      "type": "n8n-nodes-base.wooCommerce",
+      "typeVersion": 1,
+      "position": [
+        -96,
+        528
+      ],
+      "id": "61ee80ab-8f96-445e-a871-3fe704234bcc",
+      "name": "Confirmed"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1680,
+        80
+      ],
+      "id": "ee7a2f60-7dd2-4338-951e-b827cf714bcf",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Simulates the WooCommerce Trigger for a low-risk order.\nreturn [\n  {\n    json: {\n      id: 1007, // Current Order ID\n      status: \"processing\",\n      currency: \"USD\",\n      customer_id: 150, // Loyal Customer\n      total: \"300.00\",\n      date_created: \"2025-11-20T10:10:00\",\n      billing: { email: \"loyal.customer@gmail.com\", address_1: \"789 Quiet Lane\", city: \"Seattle\", postcode: \"98101\", country: \"US\" },\n      shipping: { address_1: \"789 Quiet Lane\", city: \"Seattle\", postcode: \"98101\", country: \"US\" },\n      line_items: [\n        { name: \"High-Quality T-Shirt\", quantity: 3, price: \"100.00\", sku: \"TSHIRT-HQ\" }\n      ],\n      customer_note: \"Love your products! Thanks.\"\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1456,
+        208
+      ],
+      "id": "e74f384f-72f1-42f4-8d8c-d03f10207f02",
+      "name": "Get an order1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Simulates fetching history for customer_id 150.\n// AOV is $300.00, resulting in a 1.0 ratio on the $300 current order.\nreturn [\n    { json: { id: 1008, total: \"350.00\", date_created: \"2025-10-15T10:00:00\", status: \"completed\" } },\n    { json: { id: 1009, total: \"250.00\", date_created: \"2025-08-01T10:00:00\", status: \"completed\" } },\n    { json: { id: 1010, total: \"300.00\", date_created: \"2024-12-01T10:00:00\", status: \"completed\" } }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1456,
+        16
+      ],
+      "id": "69af0690-ec38-4777-8a85-b0edb68bf6ed",
+      "name": "History of customer"
+    },
+    {
+      "parameters": {
+        "content": "SAMPLE NODES ( instead of WOOCOMMERCE trigger nodes)\n\nFOR TESTING THE WORKFLOW BEFORE DEPLOYMENT",
+        "height": 496,
+        "width": 464,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1760,
+        -96
+      ],
+      "id": "b439b0b6-16e8-4a94-b3ae-8e0f024ebcde",
+      "name": "Sticky Note"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Extract order details": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Extract order details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Hold an order",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Review Order",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Review an Order",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Confirmed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get an order1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "History of customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "History of customer": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get an order1": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "9e684363-c61b-4c74-8710-262a5d2a3ecb",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "0e9569affa4ecbbda78e560b2c23b61df8087625df94194f42a9d18504d35d88"
+  },
+  "id": "OpR3R5KRHbLlVrni",
+  "tags": []
+}
