@@ -1,0 +1,32 @@
+Low risk
+
+// Simulates the WooCommerce Trigger for a low-risk order.
+return [
+  {
+    json: {
+      id: 1007, // Current Order ID
+      status: "processing",
+      currency: "USD",
+      customer_id: 150, // Loyal Customer
+      total: "300.00",
+      date_created: "2025-11-20T10:10:00",
+      billing: { email: "loyal.customer@gmail.com", address_1: "789 Quiet Lane", city: "Seattle", postcode: "98101", country: "US" },
+      shipping: { address_1: "789 Quiet Lane", city: "Seattle", postcode: "98101", country: "US" },
+      line_items: [
+        { name: "High-Quality T-Shirt", quantity: 3, price: "100.00", sku: "TSHIRT-HQ" }
+      ],
+      customer_note: "Love your products! Thanks."
+    }
+  }
+];
+
+
+HISTORICAL ORDERS
+
+// Simulates fetching history for customer_id 150.
+// AOV is $300.00, resulting in a 1.0 ratio on the $300 current order.
+return [
+    { json: { id: 1008, total: "350.00", date_created: "2025-10-15T10:00:00", status: "completed" } },
+    { json: { id: 1009, total: "250.00", date_created: "2025-08-01T10:00:00", status: "completed" } },
+    { json: { id: 1010, total: "300.00", date_created: "2024-12-01T10:00:00", status: "completed" } }
+];
